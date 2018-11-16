@@ -1,0 +1,93 @@
+---
+title: "decision trees"
+author: "PC"
+date: "14 novembre 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+
+```{r iris, echo=TRUE, cache= TRUE, warning=FALSE}
+library(ISLR)
+library(tree)
+library(dplyr)
+data(package="ISLR")
+carseats<-Carseats
+```
+
+The Carseats dataset is a dataframe with 400 observations on the following 11 variables:
+
+* Sales: unit sales in thousands
+* CompPrice: price charged by competitor at each location
+* Income: community income level in 1000s of dollars
+* Advertising: local ad budget at each location in 1000s of dollars
+* Population: regional pop in thousands
+* Price: price for car seats at each site
+* ShelveLoc: Bad, Good or Medium indicates quality of shelving location
+* Age: age level of the population
+* Education: ed level at location
+* Urban: Yes/No
+* US: Yes/No
+
+
+```{r discoverdata}
+names(carseats)
+hist(carseats$Sales)
+```
+
+
+Un arbre de décision ça prend des ** décision** : on va créer une variable **réponse** qualitative (booléenne)qui dit si la quantité de ventes (`Sales`) est élevée (high) ou pas :
+
+```{r gettinghigh}
+carseats <-  carseats %>% mutate(highsales =ifelse( Sales<=8, "Low", "High"))
+head(carseats$highsales)
+```
+
+On fait un arbre en retirant la variables `Sales` , puisque la variable réponse dépend directement de la variable `Sales`
+
+**ATTENTION** il faut une varibale factorielle pour la variable réponse
+
+```{r firsttree}
+tree.carseats = tree(as.factor(highsales)~.-Sales, data=carseats)
+summary(tree.carseats)
+plot(tree.carseats)
+text(tree.carseats, pretty = 0)
+tree.carseats
+```
+
+
+on va faire un sample et refaire un arbre sur ce sample
+
+
+```{r training}
+set.seed(101)
+train=sample(1:nrow(carseats), 250)
+tree.carseats = tree(highsales~.-Sales, carseats, subset=train)
+plot(tree.carseats)
+text(tree.carseats, pretty=0)
+
+```
+
+On teste le pouvoir prédictif de cet arbre **privé de **  l'échantillon ( on retire les index de `train` ) on test la sur lequel :
+
+```{r  pred1}
+class(tree.carseats)
+tree.pred = predict(tree.carseats, carseats[-train,], type="class")
+```
+
+Pour évaluer l'efficacité de prédictioàn de l'arbre , on fait une  table entre les vraies valeurs de `highsales`  dans les données et celles que l'arbre prédit 
+
+```{r evalperf}
+with(carseats[-train,], table(tree.pred, highsales))
+```
+
+
+
+
+
+
