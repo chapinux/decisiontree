@@ -12,6 +12,9 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Setup
 
 
+Tuto repompé intégralement de https://www.datacamp.com/community/tutorials/decision-trees-R
+
+
 ```{r iris, echo=TRUE, cache= TRUE, warning=FALSE}
 library(ISLR)
 library(tree)
@@ -44,16 +47,17 @@ hist(carseats$Sales)
 Un arbre de décision ça prend des ** décision** : on va créer une variable **réponse** qualitative (booléenne)qui dit si la quantité de ventes (`Sales`) est élevée (high) ou pas :
 
 ```{r gettinghigh}
-carseats <-  carseats %>% mutate(highsales =ifelse( Sales<=8, "Low", "High"))
+carseats <- carseats %>% mutate(highsales =ifelse( Sales<=8, "Low", "High"))
 head(carseats$highsales)
 ```
 
 On fait un arbre en retirant la variables `Sales` , puisque la variable réponse dépend directement de la variable `Sales`
 
-**ATTENTION** il faut une varibale factorielle pour la variable réponse
+**ATTENTION** il faut une varibale *factorielle* pour la variable réponse
 
 ```{r firsttree}
-tree.carseats = tree(as.factor(highsales)~.-Sales, data=carseats)
+carseats$highsales <-  as.factor(carseats$highsales)
+tree.carseats <-  tree(highsales~.-Sales, data=carseats)
 summary(tree.carseats)
 plot(tree.carseats)
 text(tree.carseats, pretty = 0)
@@ -66,28 +70,139 @@ on va faire un sample et refaire un arbre sur ce sample
 
 ```{r training}
 set.seed(101)
-train=sample(1:nrow(carseats), 250)
+train <- sample(1:nrow(carseats), 250)
 tree.carseats = tree(highsales~.-Sales, carseats, subset=train)
 plot(tree.carseats)
 text(tree.carseats, pretty=0)
-
 ```
 
 On teste le pouvoir prédictif de cet arbre **privé de **  l'échantillon ( on retire les index de `train` ) on test la sur lequel :
 
 ```{r  pred1}
-class(tree.carseats)
-tree.pred = predict(tree.carseats, carseats[-train,], type="class")
+tree.pred <-  predict(tree.carseats, carseats[-train,], type="class")
 ```
 
 Pour évaluer l'efficacité de prédictioàn de l'arbre , on fait une  table entre les vraies valeurs de `highsales`  dans les données et celles que l'arbre prédit 
 
 ```{r evalperf}
-with(carseats[-train,], table(tree.pred, highsales))
+tutu <- with(carseats[-train,], table(tree.pred, highsales))
+```
+
+
+Sur la diagonale de cette table , c'est les bonnes prédictions .
+Pour avoir le score de l'arbre en pourcentage, on peut sommer la diagonale et diviser par la taille du corpus.
+
+``` {r score}
+sum(diag(tutu)) /  nrow(carseats[-train,])
+```
+
+
+Pour élaguer de façon optimale , on fait de la cross validation  (pourquoi ? )
+
+
+```{r prune}
+cv.carseats <-  cv.tree(tree.carseats, FUN = prune.misclass)
+cv.carseats
+plot(cv.carseats)
+```
+
+La deviance (Cross-entropy) (attribut `dev` de l'objet ) `cv.carseats`  rend compte de la pureté d'une zone de l'espace i.e. tout appartient à peu près à la même classe et c'est pas trop mélangé. 
+
+Le taux de misclass le plus bas est obtenu pour une taille de 12.
+On élague l'arbe en fonction de la misclass , en donnant la taille qu'on veut.
+On examine l'arbre pour cette taille:
+
+```{r lookpruned}
+prune.carseats12 <-  prune.misclass(tree.carseats, best = 12)
+plot(prune.carseats12)
+text(prune.carseats12, pretty=0)
+```
+
+
+on évalue la performance de cet arbre, plus lisible qu'avant.
+
+```{r evalperf2}
+pred.prune12 <-  predict(prune.carseats12, carseats[-train,], type = "class")
+tabscore <- with(carseats[-train,], table(pred.prune12,highsales))
+sum(diag(tabscore)) /  nrow(carseats[-train,])
+```
+C'est à peine moins bon ! et beaucoup plus lisible.
+
+
+## Random forest 
+
+Apparemment c'est meilleur que le simple classification tree.
+```{r boston, warning=FALSE}
+library(MASS)
+library(randomForest)
+data(package="MASS")
+boston<-Boston
+dim(boston)
+names(boston)
+
+set.seed(101)
+trainingCorpus <-  sample(1:nrow(boston), 300)
+
+```
+
+
+Le datat set comporte des quartier de boston avec pour chacun des variables comme la criminalité, l'âge , le taux d'industrialisation.
+
+on choisit `medv` , la valeur médiane des maisons occupées par leur propriétaire, comme variable de réponse. C'est une variable continue.
+
+```{r rndForest1}
+rndf1 = randomForest(medv~., data = boston, subset = trainingCorpus)
+rndf1
+```
+
+
+Ca donne directement le pourcentage de variance expliquée  et la moyenne des résidus au carré.
+L'argument `mtry` c'est le nombre de variables utilisées. Ces variables sont changées et choisies à chaque split de l'arbre.
+Parmis ces 4 variables , il y en a une qui est choisie pour séparer l'espace , comme dans le cas classique des arbres de classification.
+Le fait qu'à chaque split , on choisisse une variable de split parmi d'autres choisies au hasard assure que les 500 arbres sont indépendants ou du moins décorrélés les uns des autres.
+
+on va fitter en faisant varier le nombre de variables entre 1 et 13 (= le nombre de variable du dataset - 1, pour la variable de reponse)
+On crée deux observations : `oob.err` (out of bag error) et `test.err`
+
+```{r fittingmtry}
+
+oob.err <-  double(13)
+test.err <-  double(13)
+for(mtry in 1:13){
+  fit <-  randomForest(medv~., data = boston, subset=trainingCorpus, mtry=mtry, ntree = 350)
+  oob.err[mtry] <-  fit$mse[350]
+  pred <-  predict(fit, boston[-trainingCorpus,])
+  test.err[mtry] = with(boston[-trainingCorpus,], mean( (medv-pred)^2 ))
+}
+```
+
+`oob.err` c'est la MSE sur le corpus d'apprentissage (pas sûr)
+`test.err` c'est l'erreurr de prédiction : moyenne (medv observée - medv prédite ) ^2 sur le corpus moins le trainingCorpus
+
+C'est la même quantité , mais pas les mêms datasets !
+
+```{r ploterror}
+matplot(1:mtry, cbind(test.err, oob.err), pch = 23, col = c("red", "blue"), type = "b", ylab="Mean Squared Error")
+legend("topright", legend = c("OOB", "Test"), pch = 23, col = c("red", "blue"))
+
 ```
 
 
 
 
+Avec ces courbes on peut déterminer le mtry optimal vis a vis du MSE pour le  test.
 
+```{r optim}
+optiFit <-   randomForest(medv~., data = boston, subset=trainingCorpus, mtry=5, ntree = 350)
+predOpti <-  predict(optiFit,boston[-trainingCorpus,] )
+
+compdatapred <-  data.frame(predOpti, boston[-trainingCorpus,"medv"])
+names(compdatapred) <- c( "predicted",  "observed")
+library(ggplot2)
+xuxu <- ggplot(compdatapred, aes(observed))+
+  geom_density(color="red")+
+  geom_density(data = predicted, color= "blue")
+  
+xuxu
+```
 
